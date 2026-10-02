@@ -1,5 +1,5 @@
 /**
- * Ring Intercom Video Card - v1.2.0
+ * Ring Intercom Video Card - v1.3.0
  *
  * Two-way audio + video Lovelace card for Ring Intercom Video.
  * Companion to the ring-intercom-video custom component.
@@ -24,7 +24,7 @@
  * License: Apache-2.0
  */
 
-const CARD_VERSION = '1.2.0';
+const CARD_VERSION = '1.3.0';
 const CARD_TAG = 'ring-intercom-video-card';
 const EDITOR_TAG = 'ring-intercom-video-card-editor';
 const LOG_PREFIX = '[ring-intercom-video-card]';
@@ -172,7 +172,7 @@ const LANGUAGE_NAMES = {
   es: 'Espanol',
   en: 'English',
   ca: 'Catala',
-  fr: 'Français',
+  fr: 'Francais',
 };
 
 function detectLanguage(hass, configLang) {
@@ -290,57 +290,146 @@ class RingIntercomVideoCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 4;
+    return 5;
+  }
+
+  _setState(state) {
+    const c = this.shadowRoot.querySelector('.container');
+    if (c) c.setAttribute('data-state', state);
   }
 
   _render() {
     const T = (key) => t(this._lang, key);
+    const initialState = this._connected ? 'connected' : 'idle';
 
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; }
         ha-card { padding: 0; overflow: hidden; }
-        .container { display: flex; flex-direction: column; background: #000; }
-        .video-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; max-height: var(--ring-video-max-height, none); background: #000; }
-        video { width: 100%; height: 100%; object-fit: var(--ring-video-object-fit, contain); max-height: var(--ring-video-max-height, none); background: #000; }
-        .overlay {
-          position: absolute; top: 8px; left: 8px;
-          padding: 4px 8px; background: rgba(0, 0, 0, 0.6);
-          color: #fff; font-size: 12px; border-radius: 4px; font-family: monospace;
+        .container { display: flex; flex-direction: column; }
+
+        /* ---- Video ---- */
+        .video-wrap {
+          position: relative; width: 100%; aspect-ratio: 4 / 3;
+          max-height: var(--ring-video-max-height, none);
+          background: radial-gradient(circle at 50% 40%, #1c1c1e 0%, #000 75%);
+          overflow: hidden;
         }
-        .controls { display: flex; flex-direction: column; padding: 16px; gap: 12px; background: #1a1a1a; }
-        .row { display: flex; gap: 12px; }
+        video {
+          display: block; width: 100%; height: 100%;
+          object-fit: var(--ring-video-object-fit, contain);
+          max-height: var(--ring-video-max-height, none);
+          background: transparent;
+        }
+        .placeholder {
+          position: absolute; inset: 0;
+          display: flex; align-items: center; justify-content: center;
+          color: rgba(255, 255, 255, 0.25); pointer-events: none;
+        }
+        .placeholder ha-icon { --mdc-icon-size: 64px; }
+        .video-wrap.has-video .placeholder { display: none; }
+
+        .status {
+          position: absolute; top: 12px; left: 12px;
+          display: flex; align-items: center; gap: 8px;
+          max-width: calc(100% - 24px);
+          padding: 6px 12px 6px 10px; border-radius: 999px;
+          background: rgba(0, 0, 0, 0.55);
+          backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+          color: #fff; font-size: 12px; font-weight: 500;
+        }
+        .status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #9e9e9e; }
+        [data-state="connecting"] .dot { background: var(--warning-color, #ffa000); animation: blink 1s infinite; }
+        [data-state="connected"] .dot {
+          background: var(--success-color, #43a047);
+          box-shadow: 0 0 0 3px rgba(67, 160, 71, 0.35);
+        }
+        @keyframes blink { 50% { opacity: 0.3; } }
+
+        /* ---- Controls ---- */
+        .controls { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+
         .ptt {
-          flex: 1; padding: 24px; font-size: 18px; font-weight: bold;
-          border: none; border-radius: 12px; background: #444; color: #fff;
-          cursor: pointer; user-select: none; touch-action: none; transition: background 0.1s;
+          display: none; align-items: center; justify-content: center; gap: 10px;
+          width: 100%; padding: 18px; border: none; border-radius: 16px;
+          font: inherit; font-size: 15px; font-weight: 600; letter-spacing: 0.5px;
+          background: var(--secondary-background-color, #e0e0e0);
+          color: var(--primary-text-color);
+          cursor: pointer; user-select: none; -webkit-user-select: none;
+          touch-action: none; -webkit-tap-highlight-color: transparent;
+          transition: background 0.15s, color 0.15s, transform 0.1s;
         }
-        .ptt:disabled { opacity: 0.4; cursor: not-allowed; }
-        .ptt.active { background: #d32f2f; box-shadow: 0 0 20px rgba(211, 47, 47, 0.8); }
-        .ptt.ready { background: #2e7d32; }
-        .action-btn {
-          flex: 1; padding: 16px; font-size: 15px; font-weight: 600;
-          border: none; border-radius: 10px; color: #fff; cursor: pointer;
-          user-select: none; transition: opacity 0.15s, transform 0.05s;
+        .ptt ha-icon { --mdc-icon-size: 24px; }
+        .ptt:disabled { opacity: 0.5; cursor: not-allowed; }
+        .ptt.ready { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+        .ptt.active {
+          background: var(--error-color, #db4437); color: #fff;
+          transform: scale(0.98); animation: pulse 1.2s infinite;
         }
-        .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .action-btn:active:not(:disabled) { transform: scale(0.97); }
-        .start-btn { background: #1976d2; }
-        .door-btn { background: #f57c00; }
-        .hangup-btn { background: #c62828; }
+        @keyframes pulse {
+          0%   { box-shadow: 0 0 0 0 rgba(219, 68, 55, 0.55); }
+          70%  { box-shadow: 0 0 0 14px rgba(219, 68, 55, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(219, 68, 55, 0); }
+        }
+
+        .actions { display: flex; justify-content: space-evenly; gap: 8px; }
+        .action {
+          flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;
+          padding: 0; border: none; background: none; font: inherit;
+          color: var(--primary-text-color); cursor: pointer;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .action .circle {
+          width: 60px; height: 60px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+          transition: transform 0.1s, filter 0.15s, background 0.2s;
+        }
+        .action .circle ha-icon { --mdc-icon-size: 28px; }
+        .action .label { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); }
+        .action:hover:not(:disabled) .circle { filter: brightness(1.1); }
+        .action:active:not(:disabled) .circle { transform: scale(0.92); }
+        .action:disabled { cursor: not-allowed; opacity: 0.4; }
+
+        .start .circle  { background: var(--success-color, #43a047); }
+        .door .circle   { background: var(--warning-color, #ffa000); }
+        .door.flash .circle { background: var(--success-color, #43a047); }
+        .hangup .circle { background: var(--error-color, #db4437); }
+
+        /* State-driven visibility: idle = Pick up / Open door, in call = PTT / Open door / Hang up */
+        .hangup { display: none; }
+        [data-state="connecting"] .ptt,
+        [data-state="connected"] .ptt { display: flex; }
+        [data-state="connecting"] .hangup,
+        [data-state="connected"] .hangup { display: flex; }
+        [data-state="connecting"] .start,
+        [data-state="connected"] .start { display: none; }
       </style>
       <ha-card>
-        <div class="container">
+        <div class="container" data-state="${initialState}">
           <div class="video-wrap">
             <video id="video" autoplay playsinline></video>
-            <div class="overlay" id="status">${T('idle')}</div>
+            <div class="placeholder"><ha-icon icon="mdi:doorbell-video"></ha-icon></div>
+            <div class="status"><span class="dot"></span><span class="status-text" id="status">${T('idle')}</span></div>
           </div>
           <div class="controls">
-            <button class="ptt" id="ptt" disabled>${T('ptt_button')}</button>
-            <div class="row">
-              <button class="action-btn start-btn" id="start">📞 ${T('pick_up')}</button>
-              <button class="action-btn door-btn" id="door" disabled>🔓 ${T('open_door')}</button>
-              <button class="action-btn hangup-btn" id="hangup" disabled>📵 ${T('hang_up')}</button>
+            <button class="ptt" id="ptt" disabled>
+              <ha-icon icon="mdi:microphone"></ha-icon><span>${T('ptt_button')}</span>
+            </button>
+            <div class="actions">
+              <button class="action start" id="start">
+                <span class="circle"><ha-icon icon="mdi:phone"></ha-icon></span>
+                <span class="label">${T('pick_up')}</span>
+              </button>
+              <button class="action door" id="door" disabled>
+                <span class="circle"><ha-icon icon="mdi:door-open"></ha-icon></span>
+                <span class="label">${T('open_door')}</span>
+              </button>
+              <button class="action hangup" id="hangup" disabled>
+                <span class="circle"><ha-icon icon="mdi:phone-hangup"></ha-icon></span>
+                <span class="label">${T('hang_up')}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -348,8 +437,6 @@ class RingIntercomVideoCard extends HTMLElement {
     `;
 
     // Optional video height limit (e.g. for small screens like Echo Show 5).
-    // Only inject the CSS variables when the option is defined, so existing
-    // installs without `video_max_height` render exactly as before.
     const maxHeight = this._config && this._config.video_max_height;
     if (maxHeight) {
       this.style.setProperty('--ring-video-max-height', maxHeight);
@@ -401,9 +488,8 @@ class RingIntercomVideoCard extends HTMLElement {
       await this._hass.callService(domain, service, data);
       this._status(T('door_opened'));
       const doorBtn = this.shadowRoot.getElementById('door');
-      const originalBg = doorBtn.style.background;
-      doorBtn.style.background = '#2e7d32';
-      setTimeout(() => { doorBtn.style.background = originalBg; }, 800);
+      doorBtn.classList.add('flash');
+      setTimeout(() => doorBtn.classList.remove('flash'), 800);
     } catch (err) {
       this._status(`${T('error_opening')} ${err.message}`);
       console.error(LOG_PREFIX, 'openDoor failed:', err);
@@ -416,6 +502,7 @@ class RingIntercomVideoCard extends HTMLElement {
     this._connecting = true;
     this._sessionId = null;
     this._pendingCandidates = [];
+    this._setState('connecting');
     this._status(T('connecting'));
     const startBtn = this.shadowRoot.getElementById('start');
     const hangupBtn = this.shadowRoot.getElementById('hangup');
@@ -435,16 +522,20 @@ class RingIntercomVideoCard extends HTMLElement {
       this._pc.addTransceiver(audioTrack, { direction: 'sendrecv', streams: [this._localStream] });
       this._pc.addTransceiver('video', { direction: 'recvonly' });
       this._pc.ontrack = (ev) => {
-        console.log(LOG_PREFIX, 'Track recibido:', ev.track.kind);
+        console.log(LOG_PREFIX, 'Track received:', ev.track.kind);
         const video = this.shadowRoot.getElementById('video');
         if (!video.srcObject) video.srcObject = new MediaStream();
         video.srcObject.addTrack(ev.track);
+        if (ev.track.kind === 'video') {
+          this.shadowRoot.querySelector('.video-wrap')?.classList.add('has-video');
+        }
       };
       this._pc.onconnectionstatechange = () => {
         if (!this._pc) return;
         this._status(`${T('pc_state')} ${this._pc.connectionState}`);
         if (this._pc.connectionState === 'connected') {
           this._connected = true;
+          this._setState('connected');
           const pttBtn = this.shadowRoot.getElementById('ptt');
           pttBtn.disabled = false;
           pttBtn.classList.add('ready');
@@ -529,6 +620,7 @@ class RingIntercomVideoCard extends HTMLElement {
       video.srcObject.getTracks().forEach((t) => t.stop());
       video.srcObject = null;
     }
+    this.shadowRoot.querySelector('.video-wrap')?.classList.remove('has-video');
     if (this._unsubscribe) { try { this._unsubscribe(); } catch (_) {} this._unsubscribe = null; }
     if (this._pc) { try { this._pc.close(); } catch (_) {} this._pc = null; }
     if (this._localStream) { this._localStream.getTracks().forEach((t) => t.stop()); this._localStream = null; }
@@ -542,6 +634,7 @@ class RingIntercomVideoCard extends HTMLElement {
     if (hangupBtn) hangupBtn.disabled = true;
     const doorBtn = this.shadowRoot.getElementById('door');
     if (doorBtn) doorBtn.disabled = true;
+    this._setState('idle');
     this._status(wasConnected ? T('hung_up') : T('disconnected'));
   }
 
@@ -733,9 +826,9 @@ class RingIntercomVideoCardEditor extends HTMLElement {
     // Advanced toggle
     const toggle = document.createElement('div');
     toggle.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; padding:8px 0; color:var(--primary-text-color); font-size:14px;';
-    const chevron = document.createElement('span');
-    chevron.style.cssText = `display:inline-block; transition:transform 0.2s; transform:${adv ? 'rotate(90deg)' : 'rotate(0deg)'};`;
-    chevron.textContent = '▶';
+    const chevron = document.createElement('ha-icon');
+    chevron.setAttribute('icon', 'mdi:chevron-right');
+    chevron.style.cssText = `--mdc-icon-size:20px; transition:transform 0.2s; transform:${adv ? 'rotate(90deg)' : 'rotate(0deg)'};`;
     const tlabel = document.createElement('span');
     tlabel.textContent = T('editor_advanced_toggle');
     toggle.appendChild(chevron);
