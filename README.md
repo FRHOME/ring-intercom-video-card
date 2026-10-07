@@ -12,12 +12,17 @@ This is the **frontend card**. It needs the companion backend custom integration
 
 ## ✨ Features
 
-- 📹 **Live video** stream from the intercom (native WebRTC, no transcoding)
-- 🎤 **Two-way audio** with push-to-talk button
-- 🔓 **Open door** button (uses Ring's native `lock.unlock` or any custom service)
-- 📵 **Hang up** button (clean session teardown, releases mic and camera)
-- 🛠 **Visual editor** with entity pickers — no YAML needed
-- 🌍 **Multi-language UI** with auto-detection: Spanish, English, Catalan
+- 👀 **Muted video preview without picking up** — as soon as the card is on screen, or only when someone rings
+- 📞 **Pick up = instant two-way audio** on the same WebRTC session (no reconnection, no renegotiation)
+- 🎤 **Push-to-talk** floating on the video — hold to talk, or tap to talk / tap to mute
+- 🛎️ **Reacts to the doorbell** (`ding_entity`): the card rings, highlights itself and can start the preview
+- 🔓 **Open door** bubble (the Ring integration's `button.*` opener, a `lock.*`, or any custom service), with optional **hold-to-open** confirmation
+- 🪟 **Optional full-screen pop-up** when picking up, without dropping the stream
+- 🔁 **Auto-reconnect**, **auto hang-up** after inactivity, hang up when the app goes to background
+- 📱 **Phone-friendly**: deep link `?ring_intercom=answer` for notifications, keeps the screen awake during a call
+- 🎨 **Bubble Card look**, follows your HA theme and reuses Bubble Card theme variables when present
+- 🛠 **Visual editor** built on Home Assistant's native form — no YAML needed
+- 🌍 **Multi-language UI** with auto-detection: Spanish, English, Catalan, French
 - 📐 **Optional `video_max_height`** to fit small screens like the Echo Show 5
 - 🔌 Pure browser-side WebRTC, no `go2rtc`, no extra add-ons, no transcoding server
 - 🌐 Works on desktop and mobile browsers (with HTTPS)
@@ -38,9 +43,10 @@ Install the backend integration first, verify it created a `camera.*` entity for
 
 ### 🌐 HTTPS access to Home Assistant
 
-Browsers require a **secure context** to access the microphone (`getUserMedia`). If you access HA over plain HTTP (`http://192.168.x.x:8123`), the microphone will not work and you'll get one-way audio at best.
+Browsers require a **secure context** to access the microphone (`getUserMedia`). If you access HA over plain HTTP (`http://192.168.x.x:8123`), the microphone is unavailable and the card falls back to **listen only**: you get video and the visitor's voice, the push-to-talk button stays disabled, and the card says `Listen only: microphone needs HTTPS`.
 
-You need any of:
+So the card works over plain HTTP — you just can't talk back. For two-way audio you need any of:
+
 - 🏠 Nabu Casa Home Assistant Cloud (HTTPS automatic)
 - 🔐 A reverse proxy with Let's Encrypt (nginx, Caddy, Traefik, Nginx Proxy Manager...)
 - 🔒 Native HA HTTPS with a valid certificate
@@ -91,7 +97,7 @@ If this step doesn't produce a camera entity, fix that first — the card will n
 To confirm it loaded, open the browser console (F12) — you should see a blue banner like:
 
 ```
- RING-INTERCOM-VIDEO-CARD  v1.2.0
+ RING-INTERCOM-VIDEO-CARD  v2.0.0
 ```
 
 ### 🔧 Manual installation (alternative)
@@ -115,9 +121,13 @@ If you prefer not to use HACS:
 4. Search for **Ring Intercom Video Card** in the picker
 5. The **visual editor** will open:
    - 📹 **Camera entity**: pick the `camera.*` created by the backend integration
-   - 🔓 **Lock entity** (optional): pick the `lock.*` provided by the Ring integration to enable the "Open door" button
-   - 🌍 **Language** (optional): override the auto-detected language (defaults to your HA language)
-   - ⚙️ **Advanced** (toggle): instead of a simple lock, you can call any service when "Open door" is pressed
+   - 🏷️ **Name** (optional): defaults to the camera's friendly name
+   - 🔓 **Open door entity** (optional): pick the entity that opens the door and the "Open door" button appears. With the **official Ring integration** that is the `button.*` **Open door** entity; with **ring-mqtt** it is the `lock.*`. A `script.*`, `switch.*`, `input_button.*`, `scene.*` or `cover.*` works too — the card calls the right service for that domain.
+   - 🛎️ **Ding entity** (optional): the Ring `event.*` (device class `doorbell`) or `binary_sensor.*` that fires when someone rings. Auto-detected when there is exactly one
+   - 🖥️ **Display**: automatic preview, pop-up on pick up, video area, language
+   - 📞 **Call**: push-to-talk mode, auto hang-up, background behavior, reconnection, ringing duration
+   - 🚪 **Door**: hold-to-open and its duration
+   - ⚙️ **Advanced**: instead of a single entity, you can call any service when "Open door" is pressed
 6. Click **Save**
 
 ---
@@ -129,20 +139,63 @@ The visual editor covers the typical cases, but here's the full schema for refer
 | Option | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | ✅ Yes | Camera entity from the backend integration (`camera.*`) |
-| `lock_entity` | string | ❌ No | Lock entity used for the "Open door" button. Calls `lock.unlock`. |
-| `open_door_action` | object | ❌ No | Advanced: custom service call for "Open door". Overrides `lock_entity` if set. |
-| `open_door_action.service` | string | — | Service to call (e.g. `script.turn_on`, `automation.trigger`) |
+| `open_door_entity` | string | ❌ No | Entity that opens the door. The service is derived from its domain (see table below). |
+| `lock_entity` | string | ❌ No | **Deprecated**, kept working: old name for `open_door_entity`. |
+| `open_door_action` | object | ❌ No | Advanced: custom service call for "Open door". Overrides `open_door_entity` if set. |
+| `open_door_action.service` | string | — | Service to call (e.g. `script.turn_on`, `automation.trigger`). Optional: if omitted, it is derived from `entity_id`. |
 | `open_door_action.entity_id` | string | — | Entity passed as `entity_id` to the service |
 | `open_door_action.data` | object | — | Additional service data |
-| `language` | string | ❌ No | Force UI language: `es`, `en`, `ca`. If omitted, follows Home Assistant's language. |
+| `name` | string | ❌ No | Name shown in the card. Defaults to the camera's friendly name. |
+| `icon` | string | ❌ No | Icon of the card. Default `mdi:doorbell-video`. |
+| `ding_entity` | string | ❌ No | `event.*` or `binary_sensor.*` fired when someone rings. The card rings, highlights itself and (depending on `preview`) starts the video. |
+| `language` | string | ❌ No | Force UI language: `es`, `en`, `ca`, `fr`. If omitted, follows Home Assistant's language. |
 | `video_max_height` | string | ❌ No | Caps the video height with any CSS length (`px`, `vh`, `%`...). When set, the video uses `object-fit: contain` so it never deforms. If omitted, the video keeps its default size (no limit) — existing configs are unaffected. |
+| `video_mode` | string | ❌ No | `always` (default) or `on_call`: the video area is hidden while nothing is streaming, the card shrinks to a single bubble. |
+| `preview` | string | ❌ No | Muted video preview without picking up: `visible` (default, as soon as the card is on screen), `ring` (only when `ding_entity` fires) or `off` (video only after picking up). |
+| `preview_timeout` | number | ❌ No | Seconds before an unattended preview stops. `0` = never. Default `60`. |
+| `answer_mode` | string | ❌ No | `inline` (default) or `popup`: picking up opens a full-screen overlay. The live stream is kept, nothing reconnects. |
+| `ptt_mode` | string | ❌ No | `hold` (default, hold to talk) or `toggle` (tap to talk, tap again to mute). |
+| `auto_hangup` | number | ❌ No | Hang up after N seconds without talking or opening the door. `0` = never (default). A countdown is shown during the last 10 s. |
+| `hangup_when_hidden` | boolean | ❌ No | Hang up when the tab / app goes to the background or the phone locks. Default `true`. |
+| `auto_reconnect` | boolean | ❌ No | Retry up to 3 times (1 s, 2 s, 4 s) when the connection drops, keeping the call and the microphone. Default `true`. |
+| `ring_timeout` | number | ❌ No | Seconds the card stays in "ringing" state after a ding. Default `30`. |
+| `door_confirm` | boolean | ❌ No | `true` = press and hold the door bubble to open (prevents accidental unlocks). Default `false` (tap). |
+| `door_hold_time` | number | ❌ No | Hold duration in ms when `door_confirm` is on. Default `1000`, minimum `300`. |
+| `ice_servers` | string | ❌ No | `ha` (default): use the ICE servers configured in Home Assistant, like HA's own camera player. `none`: previous behavior, no STUN. |
 
-### 📝 Example — Simple (just lock)
+### 🔓 Which service each entity gets
+
+`open_door_entity` (and an `open_door_action` with no `service`) is resolved by domain:
+
+| Entity domain | Service called | Typical source |
+|---|---|---|
+| `button.*` | `button.press` | **Official Ring integration** — `button.<device>_open_door` |
+| `lock.*` | `lock.unlock` | **ring-mqtt** |
+| `switch.*` | `switch.turn_on` | A relay / dry contact |
+| `input_button.*` | `input_button.press` | Helper driving your own automation |
+| `input_boolean.*` | `input_boolean.turn_on` | Helper driving your own automation |
+| `script.*` | `script.turn_on` | Your own open-door sequence |
+| `scene.*` | `scene.turn_on` | Your own open-door sequence |
+| `cover.*` | `cover.open_cover` | A gate |
+
+Anything else needs the **Advanced** mode with an explicit `service`.
+
+### 📝 Example — Simple, official Ring integration
+
+The Ring integration has no `lock` entity for intercoms: its opener is a **button**.
 
 ```yaml
 type: custom:ring-intercom-video-card
 entity: camera.entrada_principal_video_camera
-lock_entity: lock.entrada_principal_video_lock
+open_door_entity: button.entrada_principal_open_door
+```
+
+### 📝 Example — Simple, ring-mqtt
+
+```yaml
+type: custom:ring-intercom-video-card
+entity: camera.entrada_principal_video_camera
+open_door_entity: lock.entrada_principal_video_lock
 ```
 
 ### 📝 Example — Advanced (custom service)
@@ -155,12 +208,40 @@ open_door_action:
   entity_id: script.abrir_puerta
 ```
 
+### 📝 Example — Phone / dashboard, everything on
+
+```yaml
+type: custom:ring-intercom-video-card
+entity: camera.entrada_principal_video_camera
+open_door_entity: button.entrada_principal_open_door
+ding_entity: event.entrada_principal_video_ding
+video_mode: on_call       # compact bubble while idle
+preview: ring             # video starts by itself when someone rings
+answer_mode: popup        # full screen when picking up
+ptt_mode: toggle          # tap to talk / tap to mute
+door_confirm: true        # hold to open
+auto_hangup: 120
+```
+
+### 📝 Example — Wall panel
+
+A wall panel that displays the card all day must **not** use `preview: visible`: the intercom has a single capture path, so a panel holding a preview open would leave every other device with a black picture.
+
+```yaml
+type: custom:ring-intercom-video-card
+entity: camera.entrada_principal_video_camera
+open_door_entity: button.entrada_principal_open_door
+ding_entity: event.entrada_principal_video_ding
+preview: ring
+hangup_when_hidden: false
+```
+
 ### 📝 Example — Forced language
 
 ```yaml
 type: custom:ring-intercom-video-card
 entity: camera.entrada_principal_video_camera
-lock_entity: lock.entrada_principal_video_lock
+open_door_entity: button.entrada_principal_open_door
 language: ca
 ```
 
@@ -171,7 +252,7 @@ On small displays such as an **Echo Show 5** (480 px tall), the default `4:3` vi
 ```yaml
 type: custom:ring-intercom-video-card
 entity: camera.entrada_principal_video_camera
-lock_entity: lock.entrada_principal_video_lock
+open_door_entity: button.entrada_principal_open_door
 video_max_height: 230px   # or 50vh, etc.
 ```
 
@@ -185,7 +266,7 @@ data:
   content:
     type: custom:ring-intercom-video-card
     entity: camera.entrada_principal_video_camera
-    lock_entity: lock.entrada_principal_video_lock
+    open_door_entity: button.entrada_principal_open_door
     video_max_height: 230px
 ```
 
@@ -193,7 +274,7 @@ data:
 
 ### 📝 Example — No door button
 
-If neither `lock_entity` nor `open_door_action` is configured, the **Open door** button is automatically hidden. Useful if you only want video + audio.
+If neither `open_door_entity` nor `open_door_action` is configured, the **Open door** button is automatically hidden. Useful if you only want video + audio.
 
 ```yaml
 type: custom:ring-intercom-video-card
@@ -211,6 +292,7 @@ The card UI is available in:
 | 🇪🇸 `es` | Español |
 | 🇬🇧 `en` | English |
 | 🇪🇸 `ca` | Català |
+| 🇫🇷 `fr` | Français |
 
 **Auto-detection**: by default, the card reads `hass.locale.language` (or `hass.language`) and picks the matching translation. If your HA is set to Spanish, the card shows Spanish. If it's set to Italian (not supported yet), it falls back to English.
 
@@ -222,23 +304,66 @@ Want another language? PRs welcome — add a new block to the `TRANSLATIONS` con
 
 ## 🎬 How to use it
 
-When someone rings the intercom or you just want to check the door:
+The card has three states:
 
-1. 🛎️ Intercom rings (or you decide to peek)
-2. 👆 Click **📞 Pick up / Descolgar / Despenjar**
-3. 🎤 Browser asks for microphone permission → **Allow** (first time only)
-4. ⏳ Wait a second or two — you'll see `PC state: connected` in the overlay
-5. 📺 Live video appears, the green push-to-talk button activates
-6. 🗣️ **Hold** the green button to speak through the intercom
-7. 🔓 Click **🔓 Open door / Abrir puerta / Obrir porta** to unlock the door
-8. 📵 Click **📵 Hang up / Colgar / Penjar** when you're done
+| State | What you get |
+|---|---|
+| **Idle** | A bubble with the name, the status and a green **Pick up** button. Tap the video area to start a preview manually. |
+| **Preview** | Live video, **muted**, no microphone (`PREVIEW` badge). Starts by itself depending on `preview`. Close it with ✕. |
+| **Call** | The visitor's voice is unmuted and your microphone is attached to the **same** session (`LIVE` badge). Push-to-talk floats on the video. |
+
+1. 🛎️ Someone rings — with `ding_entity` set, the card shakes, says *Someone is ringing!* and starts the preview
+2. 👀 Look at who is there without being heard
+3. 👆 **Pick up** — two-way audio starts instantly (the browser asks for the microphone the first time)
+4. 🗣️ **Hold** the push-to-talk pill to speak (or tap it with `ptt_mode: toggle`)
+5. 🔓 Tap the **Open door** bubble (or hold it until it fills up with `door_confirm: true`)
+6. 📵 **Hang up** — or let `auto_hangup` do it
 
 ### 💡 Tips
 
-- The **microphone is muted by default** — you have to hold the button to send audio. Release it as soon as you stop talking to avoid echo.
-- The **audio from the door is always heard** while connected — you don't need to press anything to hear them.
-- If you **forget to hang up**, the indoor intercom handset may stay "occupied" and not work normally. Always hang up when you finish.
-- The card uses **native browser WebRTC** — latency is typically under 300ms.
+- The **microphone is muted by default** in a call — you have to hold the button to send audio. Release it as soon as you stop talking to avoid echo.
+- The video element always **starts muted**: muted playback is allowed by every autoplay policy, including the Android app's WebView. It is unmuted when you pick up. If a browser refuses, you keep the picture and get a **"Tap to enable audio"** button.
+- **One device at a time**: the intercom digitizes a single analog signal, so only one WebRTC session carries a picture. The card closes its preview when it goes off screen, when the app goes to the background and after `preview_timeout`, to leave the stream to other devices.
+- If you **forget to hang up**, the indoor intercom handset may stay "occupied". `auto_hangup` and `hangup_when_hidden` are there for that.
+- In the dashboard editor the card never opens a session.
+
+---
+
+## 📱 Phone notifications (even when locked)
+
+The card understands a **deep link**: add `?ring_intercom=answer` (pick up directly) or `?ring_intercom=preview` to the URL of the view that contains it. Add `&entity=camera.xxx` if several intercom cards share the view. The parameter is removed from the URL once handled.
+
+Combined with an actionable notification from the Companion app:
+
+```yaml
+alias: Intercom - doorbell notification
+mode: single
+triggers:
+  - trigger: state
+    entity_id: event.entrada_principal_video_ding
+    not_from: [unavailable, unknown]
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: 🔔 Someone is at the door
+      message: Tap to look, or answer directly.
+      data:
+        tag: intercom-ding
+        url: /dashboard-home/intercom?ring_intercom=preview          # iOS
+        clickAction: /dashboard-home/intercom?ring_intercom=preview  # Android
+        push:
+          interruption-level: time-sensitive   # iOS: breaks through Focus
+        ttl: 0
+        priority: high                         # Android
+        channel: Intercom
+        importance: high
+        actions:
+          - action: URI
+            title: 📞 Answer
+            uri: /dashboard-home/intercom?ring_intercom=answer
+```
+
+While a preview or a call is running, the card asks the browser to **keep the screen awake** (Screen Wake Lock API, where supported), so the phone does not lock in the middle of a conversation. When the phone is unlocked again, the preview resumes on its own.
 
 ---
 
@@ -292,7 +417,7 @@ action:
       content:
         type: custom:ring-intercom-video-card
         entity: camera.entrada_principal_video_camera
-        lock_entity: lock.entrada_principal_video_lock
+        open_door_entity: button.entrada_principal_open_door
       dismissable: true
       autoclose: false
       timeout: 60000
@@ -381,7 +506,8 @@ Browser  <──signaling via HA──>  Ring Cloud  <──media P2P──>  Ri
    └──────── audio + video over WebRTC (peer-to-peer) ──────────────┘
 ```
 
-- The card builds an `RTCPeerConnection` with two transceivers: `audio: sendrecv` and `video: recvonly`
+- The card builds an `RTCPeerConnection` with two transceivers: `audio: sendrecv` and `video: recvonly`. The audio sender starts **without a track** during a preview; picking up attaches the microphone with `RTCRtpSender.replaceTrack()`, so the preview becomes a call without any renegotiation
+- ICE servers come from HA (`camera/webrtc/get_client_config`), exactly like HA's own camera player; if that call fails the card falls back to none
 - It calls Home Assistant's standard `camera/webrtc/offer` WebSocket API
 - The backend integration ([ring-intercom-video](https://github.com/cmos486/ring-intercom-video)) forwards the SDP offer to Ring's signaling servers
 - ICE candidates are exchanged via `camera/webrtc/candidate`
@@ -394,13 +520,31 @@ This is the same WebRTC machinery the official HA Ring integration already uses 
 
 ## 🧯 Troubleshooting
 
-### ❓ "Requesting microphone..." hangs or fails
+### ❓ Card says "Listen only" and push-to-talk stays disabled
 
-The browser is rejecting the microphone request:
+The call is fine — the browser just won't hand over a microphone. The card tells you which case you're in:
 
-- 🔒 You're accessing HA over **plain HTTP**. Switch to HTTPS (Nabu Casa, Let's Encrypt, etc.)
-- 🚫 You denied permission previously. Click the lock/info icon in the address bar and reset site permissions
-- 🎙️ No microphone available on your device
+| Message | Cause | Fix |
+|---|---|---|
+| `Listen only: microphone needs HTTPS` | HA served over plain HTTP, so it isn't a secure context | Switch to HTTPS (Nabu Casa, Let's Encrypt, etc.) |
+| `Listen only: microphone permission denied` | You denied permission for this site | Click the lock/info icon in the address bar and reset site permissions |
+| `Listen only: microphone unavailable` | No microphone on the device, or it's held by another app | Check your OS audio input settings |
+
+During a listen-only call, pressing push-to-talk asks for the microphone again — that press is a user gesture, which some browsers require.
+
+### ❓ Card goes straight to "Disconnected" when I tap Pick up
+
+In **v1.2.0 and earlier** this meant "something failed and the reason was thrown away" — the card set the real error on the overlay and then immediately overwrote it during teardown. Since **v1.2.1** the message survives, so whatever the overlay now says *is* the cause. Update the card first, then read the overlay.
+
+For the full picture, open the browser console (F12) and look for lines prefixed with `[ring-intercom-video-card]`.
+
+### 📱 Android Companion app: `PC state: connected` but only a grey play button
+
+Fixed in **v1.2.2**. The Home Assistant Android app is a WebView, and its `mediaPlaybackRequiresUserGesture` setting is on by default: it refuses to start **audible** media unless a user gesture is still in flight. By the time the microphone, the SDP exchange and ICE have finished, the tap on **Pick up** has long expired, so playback never started and the WebView drew its own grey play button over the dead video element. Desktop and mobile browsers don't hit this because they also allow playback on sites the user has already interacted with.
+
+Since v1.2.2 the video element **starts muted** — muted video autoplay is allowed even in the WebView — and the card unmutes it as soon as the audio track arrives. If the WebView refuses the unmute, you keep the picture and get a **"Tap to enable audio"** button; the tap is the gesture it was waiting for.
+
+You can also enable **Settings → Companion app → Autoplay videos** in the Android app, which turns that WebView restriction off globally (it affects Frigate and other WebRTC cards too — see [home-assistant/android#6578](https://github.com/home-assistant/android/issues/6578)).
 
 ### 🎥 Video shows but no audio reaches the door
 
@@ -408,7 +552,13 @@ The browser is rejecting the microphone request:
 - Open DevTools (F12) → Console — you should see `[ring-intercom-video-card] Mic: ON` when pressing
 - Make sure you're on HTTPS — some browsers silently mute mic on insecure contexts
 
-### ❌ `PC state: failed` right after connecting
+### 🛎️ The card does not react when someone rings
+
+- Check that `ding_entity` is set. Ring names it after your device and your language (e.g. `event.hall_sonnerie` in French): look for an `event.*` with device class `doorbell` on the Ring device
+- Open that entity in **Developer Tools → States** and ring the intercom: its state (a timestamp) must change. If it does not, Home Assistant is not receiving the ding from Ring — this is upstream of the card
+- To test the card alone, set a new timestamp on the entity from **Developer Tools → States**
+
+### ❌ `Reconnecting… (3/3)` then `Disconnected`
 
 Usually a network/NAT issue:
 
@@ -432,7 +582,7 @@ You're caching an old copy:
 
 ### 🛎️ "Open door" doesn't actually unlock
 
-- If using `lock_entity`: make sure `lock.unlock` works manually on that entity (Developer Tools → Services)
+- If using `open_door_entity`: make sure the service for its domain (`button.press`, `lock.unlock`…) works manually on that entity (Developer Tools → Actions)
 - If using `open_door_action`: check the service exists and works standalone
 - Look at HA logs around the time you pressed the button
 
@@ -444,8 +594,8 @@ You're caching an old copy:
 
 ### 🌍 Card shows in English when my HA is in another language
 
-- If the language code is unsupported, the card falls back to English. Supported: `es`, `en`, `ca`. PRs welcome to add more
-- You can force a language by setting `language: es` (or `en`, `ca`) in the card config
+- If the language code is unsupported, the card falls back to English. Supported: `es`, `en`, `ca`, `fr`. PRs welcome to add more
+- You can force a language by setting `language: es` (or `en`, `ca`, `fr`) in the card config
 
 ---
 
