@@ -557,7 +557,8 @@ You can also enable **Settings → Companion app → Autoplay videos** in the An
 - Check that `ding_entity` is set. Ring names it after your device and your language (e.g. `event.hall_sonnerie` in French): look for an `event.*` with device class `doorbell` on the Ring device
 - Open that entity in **Developer Tools → States** and ring the intercom: its state (a timestamp) must change. If it does not, Home Assistant is not receiving the ding from Ring — this is upstream of the card
 - To test the card alone, set a new timestamp on the entity from **Developer Tools → States**
-
+- **Known issue with the official Ring integration**: its realtime ding events can silently stop after a while (the push connection drops), while unlock events keep working because they come from a periodic history check — see [home-assistant/core#157764](https://github.com/home-assistant/core/issues/157764) and [#131527](https://github.com/home-assistant/core/issues/131527). The integration's [realtime event stability steps](https://www.home-assistant.io/integrations/ring/) (clean up *Authorized Client Devices* in Ring's Control Center, then *Reconfigure*) often help, but not durably for everyone
+- **Recommended**: install [Ring Intercom Plus](https://github.com/SH1FT-W/ring-intercom-plus) and use its `binary_sensor.<intercom>_ding` as `ding_entity`. It follows the official realtime event when it works and falls back on the regular activity check (about a minute late) when it doesn't, so a ring is never missed. It also raises a repair issue when realtime events look dead
 ### ❌ `Reconnecting… (3/3)` then `Disconnected`
 
 Usually a network/NAT issue:
